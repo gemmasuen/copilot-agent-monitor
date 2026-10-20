@@ -1,0 +1,728 @@
+:root {
+  --c-running: var(--vscode-charts-blue, #3794ff);
+  --c-idle: var(--vscode-charts-green, #89d185);
+  --c-done: var(--vscode-descriptionForeground, #8b8b8b);
+  --c-failed: var(--vscode-charts-red, #f14c4c);
+  --c-spawn: var(--vscode-charts-foreground, #cccccc);
+  --c-reuse: var(--vscode-charts-purple, #b180d7);
+  --c-steer: var(--vscode-charts-yellow, #cca700);
+  --c-peer: var(--vscode-terminal-ansiCyan, #29b8db);
+  --c-read: var(--vscode-descriptionForeground, #8b8b8b);
+  --c-replaced: var(--vscode-charts-orange, #d18616);
+  --border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  --card: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  --muted: var(--vscode-descriptionForeground);
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, inherit);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+a {
+  color: var(--vscode-textLink-foreground);
+  cursor: pointer;
+}
+
+/* ---------- toolbar ---------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.session {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 360px;
+}
+
+.session select {
+  min-width: 0;
+  flex: 1;
+  max-width: 640px;
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border, var(--border));
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+.follow {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chip.zero {
+  opacity: 0.55;
+}
+
+.chip .dot,
+.node .dot,
+.details-head .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--c-done);
+}
+
+.chip.running .dot,
+.status-running .dot {
+  background: var(--c-running);
+}
+
+.chip.idle .dot,
+.status-idle .dot {
+  background: var(--c-idle);
+}
+
+.chip.failed .dot,
+.status-failed .dot {
+  background: var(--c-failed);
+}
+
+.chip.source,
+.chip.ended {
+  color: var(--muted);
+}
+
+.banner {
+  padding: 6px 12px;
+  background: var(--vscode-editorInfo-background, rgba(55, 148, 255, 0.12));
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---------- layout ---------- */
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.graph {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  cursor: grab;
+  background-image: radial-gradient(circle, rgba(128, 128, 128, 0.18) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.graph.dragging {
+  cursor: grabbing;
+}
+
+.viewport {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.viewport.smooth {
+  transition: transform 0.35s ease;
+}
+
+.viewport svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.nodes {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.side {
+  width: 360px;
+  min-width: 280px;
+  max-width: 45%;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.details {
+  flex: 0 1 auto;
+  max-height: 58%;
+  overflow: auto;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.feed-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.feed-wrap h3 {
+  margin: 10px 14px 6px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 14px 0 6px;
+}
+
+.graph-controls {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+
+.legend {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--vscode-editor-background) 85%, transparent);
+  padding: 4px 8px;
+  border-radius: 6px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.legend span::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--c-spawn);
+  vertical-align: middle;
+  margin-right: 5px;
+}
+
+.legend .l-reuse::before { border-top: 3px solid var(--c-reuse); }
+.legend .l-steer::before { border-top-color: var(--c-steer); }
+.legend .l-peer::before { border-top: 2px dashed var(--c-peer); }
+.legend .l-replaced::before { border-top: 2px dashed var(--c-replaced); }
+.legend .l-running::before { border-top: 2px dashed var(--c-running); }
+.legend .l-none::before { display: none; }
+
+.empty {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  max-width: 460px;
+  text-align: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* ---------- nodes ---------- */
+
+.node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 228px;
+  height: 108px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: transform 0.35s ease, border-color 0.3s, opacity 0.3s;
+  overflow: hidden;
+}
+
+.node.main {
+  border-width: 2px;
+}
+
+.node:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.node.selected {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.node.status-running {
+  border-color: var(--c-running);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.node.status-idle {
+  border-color: var(--c-idle);
+  border-style: dashed;
+}
+
+.node.status-done {
+  opacity: 0.62;
+}
+
+.node.status-failed {
+  border-color: var(--c-failed);
+}
+
+.node.replaced:not(.status-running) {
+  border-color: var(--c-replaced);
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-running) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--c-running) 0%, transparent); }
+}
+
+.node.flash-spawn { animation: flash-spawn 2s ease-out; }
+.node.flash-reuse { animation: flash-reuse 2s ease-out; }
+.node.flash-steer { animation: flash-steer 2s ease-out; }
+.node.flash-peer { animation: flash-peer 2s ease-out; }
+.node.flash-read { animation: flash-read 2s ease-out; }
+
+@keyframes flash-spawn { from { box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-spawn) 55%, transparent); } }
+@keyframes flash-reuse { from { box-shadow: 0 0 0 10px color-mix(in srgb, var(--c-reuse) 65%, transparent); } }
+@keyframes flash-steer { from { box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-steer) 60%, transparent); } }
+@keyframes flash-peer { from { box-shadow: 0 0 0 8px color-mix(in srgb, var(--c-peer) 60%, transparent); } }
+@keyframes flash-read { from { box-shadow: 0 0 0 6px color-mix(in srgb, var(--c-read) 50%, transparent); } }
+
+.node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.node-head .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-sub,
+.node-status {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-running .node-status {
+  color: var(--c-running);
+}
+
+.status-idle .node-status {
+  color: var(--c-idle);
+}
+
+.status-failed .node-status {
+  color: var(--c-failed);
+}
+
+.node-badges {
+  display: flex;
+  gap: 4px;
+  min-height: 16px;
+  overflow: hidden;
+}
+
+.badge {
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.badge.new { color: var(--c-running); }
+.badge.reuse { color: var(--c-reuse); font-weight: 600; }
+.badge.replaced { color: var(--c-replaced); }
+.badge.single { color: var(--muted); }
+
+.node-meta {
+  margin-top: auto;
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.node-meta .errors {
+  color: var(--c-failed);
+}
+
+/* ---------- edges ---------- */
+
+.edge {
+  fill: none;
+  stroke: var(--c-spawn);
+  stroke-width: 1.6;
+  opacity: 0.6;
+}
+
+.edge.tree.status-running {
+  stroke: var(--c-running);
+  opacity: 0.9;
+  stroke-dasharray: 6 5;
+  animation: march 0.9s linear infinite;
+}
+
+.edge.tree.status-done {
+  opacity: 0.35;
+}
+
+.edge.tree.reused {
+  stroke: var(--c-reuse);
+  stroke-width: 3;
+  opacity: 0.85;
+}
+
+.edge.tree.replaced {
+  stroke: var(--c-replaced);
+  stroke-dasharray: 3 4;
+  opacity: 0.85;
+}
+
+.edge.tree.status-failed {
+  stroke: var(--c-failed);
+}
+
+.edge.peer {
+  stroke: var(--c-peer);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.8;
+  opacity: 0.85;
+}
+
+@keyframes march {
+  to { stroke-dashoffset: -11; }
+}
+
+.edge-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.edge-label span {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--vscode-editor-background);
+  border: 1.5px solid currentColor;
+}
+
+.k-reuse { color: var(--c-reuse); }
+.k-steer { color: var(--c-steer); }
+.k-peer { color: var(--c-peer); }
+.k-spawn { color: var(--c-spawn); }
+.k-read { color: var(--c-read); }
+
+.pulse {
+  stroke: var(--vscode-editor-background);
+  stroke-width: 2;
+}
+
+.pulse.k-spawn { fill: var(--c-running); }
+.pulse.k-reuse { fill: var(--c-reuse); }
+.pulse.k-steer { fill: var(--c-steer); }
+.pulse.k-peer { fill: var(--c-peer); }
+.pulse.k-read { fill: var(--c-read); }
+
+/* ---------- details ---------- */
+
+.details-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.details-head h2 {
+  flex: 1;
+}
+
+.status-pill {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.status-running .status-pill { color: var(--c-running); border-color: var(--c-running); }
+.status-idle .status-pill { color: var(--c-idle); border-color: var(--c-idle); }
+.status-failed .status-pill { color: var(--c-failed); border-color: var(--c-failed); }
+
+.status-text {
+  color: var(--muted);
+  margin: 2px 0 6px 16px;
+}
+
+.description {
+  margin: 6px 0;
+}
+
+.callout {
+  margin: 8px 0;
+  padding: 6px 9px;
+  border-left: 3px solid var(--border);
+  background: rgba(128, 128, 128, 0.08);
+  border-radius: 4px;
+}
+
+.callout.replaced { border-left-color: var(--c-replaced); }
+.callout.reuse { border-left-color: var(--c-reuse); }
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 12px;
+  margin: 8px 0 0;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+ul.tasks,
+ul.tools,
+ol.feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.tasks li,
+ul.tools li {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.when {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.pill {
+  font-size: 10px;
+  line-height: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.pill.k-complete { color: var(--c-idle); }
+.pill.k-fail { color: var(--c-failed); }
+.pill.k-user { color: var(--vscode-textLink-foreground); }
+.pill.k-session { color: var(--muted); }
+
+.tool-state {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--c-running);
+}
+
+.tool-state.ok { background: var(--c-idle); }
+.tool-state.fail { background: var(--c-failed); }
+
+.tool-name {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+}
+
+.tool-title {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+
+/* ---------- feed ---------- */
+
+ol.feed {
+  overflow: auto;
+  padding: 0 14px 12px;
+}
+
+.feed-item {
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.feed-item .text {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.feed-item.clickable {
+  cursor: pointer;
+}
+
+.feed-item.clickable:hover .text {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+}
+
+.feed-item.fresh {
+  animation: fresh 2.5s ease-out;
+}
+
+@keyframes fresh {
+  from { background: color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent); }
+  to { background: transparent; }
+}
+
+@media (max-width: 760px) {
+  main {
+    flex-direction: column;
+  }
+  .side {
+    width: auto;
+    max-width: none;
+    height: 45%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

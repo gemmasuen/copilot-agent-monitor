@@ -1,0 +1,103 @@
+{
+  "name": "copilot-agent-monitor",
+  "displayName": "Copilot Agent Monitor",
+  "description": "Live graph of Copilot agents and sub-agents: who spawned whom, which tasks went to new vs. reused agents, and what each one is doing.",
+  "version": "0.1.0",
+  "publisher": "gesuen",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Visualization",
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "copilot",
+    "agent",
+    "subagent",
+    "visualization",
+    "orchestration"
+  ],
+  "icon": "media/icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "copilotAgentMonitor.open",
+        "title": "Open Agent Monitor",
+        "category": "Copilot Agent Monitor",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "copilotAgentMonitor.selectSession",
+        "title": "Select Session…",
+        "category": "Copilot Agent Monitor"
+      },
+      {
+        "command": "copilotAgentMonitor.followLatest",
+        "title": "Follow Latest Active Session",
+        "category": "Copilot Agent Monitor"
+      },
+      {
+        "command": "copilotAgentMonitor.refresh",
+        "title": "Reload Session",
+        "category": "Copilot Agent Monitor"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot Agent Monitor",
+      "properties": {
+        "copilotAgentMonitor.sources.copilotSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Monitor Copilot CLI / Copilot SDK harness sessions (~/.copilot/session-state). These support sub-agent reuse."
+        },
+        "copilotAgentMonitor.sources.vscodeTranscripts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Monitor VS Code Local-harness chat transcripts (workspaceStorage/*/GitHub.copilot-chat/transcripts). Sub-agents there are always new."
+        },
+        "copilotAgentMonitor.copilotSessionStateDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override the Copilot session-state folder. Leave empty for ~/.copilot/session-state."
+        },
+        "copilotAgentMonitor.showPreviews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show short (truncated) previews of task descriptions and agent messages. Full prompts and file contents are never shown."
+        },
+        "copilotAgentMonitor.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show running/idle sub-agent counts in the status bar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p webview",
+    "test": "vitest run",
+    "inspect": "esbuild scripts/inspect.ts --bundle --platform=node --outfile=dist/inspect.js --log-level=warning && node dist/inspect.js",
+    "preview": "node esbuild.mjs && esbuild scripts/preview.ts --bundle --platform=node --outfile=dist/preview.js --log-level=warning && node dist/preview.js",
+    "watch-session": "esbuild scripts/watch.ts --bundle --platform=node --outfile=dist/watch.js --log-level=warning && node dist/watch.js",
+    "package": "npm run typecheck && npm test && node esbuild.mjs --production && vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "~1.100.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

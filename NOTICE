@@ -1,0 +1,33 @@
+Copilot Agent Monitor
+Copyright (c) 2026 gesuen
+
+This product includes ideas and adapted code from the following project:
+
+copilot-agent-viz — https://github.com/ilyas-it83/copilot-agent-viz
+Copyright (c) 2026 Ilyas F
+Licensed under the MIT License.
+
+Adapted portions:
+- Discovery of per-platform VS Code workspaceStorage folders and
+  GitHub.copilot-chat transcript directories (src/sources/discovery.ts).
+- Single-instance WebviewPanel lifecycle pattern (src/webview/panel.ts).
+
+MIT License text for copilot-agent-viz:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
