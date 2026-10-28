@@ -1,4 +1,9 @@
-# Copilot Agent Monitor
+---
+title: Copilot Agent Monitor
+description: A live visual map of Copilot agents, sub-agent reuse, and orchestration feedback.
+---
+
+## Copilot Agent Monitor
 
 A live, visual map of what your Copilot agent is doing with its **sub-agents**: when it creates them, what each one is working on, and, when the next task comes along, whether it **reuses** an existing agent or **creates a new one**.
 
@@ -23,6 +28,21 @@ Inspired by the Agent Manager in Google Antigravity.
 The side panel shows the selected agent's details (type, model, reusable or not, tokens, tasks received, recent tools). Below it is an **activity feed** that narrates the orchestration in plain language, for example *“Main agent reused idle agent “map-auth-code” for a new task: …”*.
 
 The status bar shows how many sub-agents are running or idle. Click it to open the monitor.
+
+## Feedback-loop example
+
+An agent orchestration can repeat a review-and-fix cycle rather than delegate each task once.
+This synthetic, gauntlet-style example keeps one implementer and three reviewers alive across
+three rounds. Correctness review, regression tests, and a design challenger report blockers;
+the coordinator sends the implementer back for two fix cycles. The loop exits only when all
+three reviewers approve the same revision.
+
+![Synthetic gauntlet showing three reviewers, two fix cycles, reused agents, and approval feedback](media/gauntlet-screenshot.png)
+
+Purple **reused ×2** badges show repeat assignments. Cyan message arcs show reviewers sending
+feedback to the implementer and the implementer announcing revisions for another review.
+Select an agent to inspect the round-by-round messages. These are existing orchestration
+visuals, not a separate loop detector or an implementation of a specific Gauntlet framework.
 
 ## Usage
 
@@ -67,11 +87,15 @@ npm run build        # bundle extension + webview into dist/
 npm test             # vitest unit tests
 npm run typecheck
 npm run preview      # dist/preview.html: the real webview replaying a synthetic demo in a browser
+npm run preview -- --gauntlet  # replay the synthetic, repeated review/fix loop instead
 npm run inspect -- <path\to\events.jsonl> --feed   # text summary of a session's orchestration
 npm run package      # typecheck + test + production build + VSIX
 ```
 
 Press <kbd>F5</kbd> to launch an Extension Development Host.
+
+Open the generated `dist/preview.html` in a browser to watch either demo. For a still image,
+append `?frame=999&play=0` to show the final frame without replaying the animation.
 
 Install the packaged VSIX with `code --install-extension copilot-agent-monitor-<version>.vsix`.
 

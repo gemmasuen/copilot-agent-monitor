@@ -1,6 +1,7 @@
 /**
  * Dev tool: renders the real webview bundle in a normal browser with a mocked VS Code API.
  *   npm run preview            -> dist/preview.html replaying a synthetic demo session
+ *   npm run preview -- --gauntlet -> replays a synthetic review/fix feedback loop
  *   npm run preview -- <file>  -> replays a real events.jsonl / transcript (stays local in dist/)
  */
 import * as fs from "fs";
@@ -9,12 +10,19 @@ import { RawEvent } from "../src/model/events";
 import { OrchestrationModel } from "../src/model/orchestration";
 import { SessionSnapshot } from "../src/model/snapshot";
 import { JsonlTailer } from "../src/sources/jsonlTail";
-import { buildDemo } from "./demo";
+import { buildDemo, buildGauntletDemo } from "./demo";
 
 const KEY_EVENTS = new Set(["subagent.started", "subagent.completed", "tool.execution_start", "tool.execution_complete"]);
 const MAX_FRAMES = 80;
 
 async function loadEvents(file?: string): Promise<{ events: RawEvent[]; source: "copilot" | "vscode"; title: string }> {
+  if (file === "--gauntlet") {
+    return {
+      events: buildGauntletDemo(Date.parse("2026-10-20T09:00:00Z")).events,
+      source: "copilot",
+      title: "Synthetic gauntlet: 3 reviewers, 3 rounds, 2 fix cycles",
+    };
+  }
   if (!file) {
     return { events: buildDemo(Date.parse("2026-10-20T09:00:00Z")).events, source: "copilot", title: "Demo: refactor the auth module" };
   }

@@ -42,3 +42,90 @@ export function buildDemo(start: number): EventBuilder {
   b.advance(2500).push("assistant.turn_start", {}, C).toolStart("c2", "powershell", { description: "Run the test suite" }, C);
   return b;
 }
+
+/** A synthetic three-round review gauntlet with two fix cycles and a unanimous approval gate. */
+export function buildGauntletDemo(start: number): EventBuilder {
+  const implementer = id(1);
+  const reviewers = [
+    { agentId: id(2), name: "correctness-review", type: "code-review", tool: "view" },
+    { agentId: id(3), name: "regression-tests", type: "task", tool: "powershell" },
+    { agentId: id(4), name: "design-challenger", type: "rubber-duck", tool: "view" },
+  ];
+  const rounds = [
+    {
+      revision: "Round 1: implement retry handling",
+      feedback: [
+        "Round 1 BLOCK: retry counter resets after reconnect. Preserve the attempt budget.",
+        "Round 1 BLOCK: timeout regression fails. Add a bounded-retry test.",
+        "Round 1 BLOCK: cancellation has no owner. Define who stops pending retries.",
+      ],
+      fix: "Round 1 rejected. Fix retry budget, timeout coverage and cancellation ownership.",
+    },
+    {
+      revision: "Round 2: retry budget and cancellation fixed",
+      feedback: [
+        "Round 2 PASS: retry budget is bounded. Keep that invariant in the next revision.",
+        "Round 2 BLOCK: cancellation during backoff still fails. Add a race regression.",
+        "Round 2 BLOCK: backoff timer survives cancellation. Clear it before handoff.",
+      ],
+      fix: "Round 2 rejected. Clear the backoff timer on cancel and cover the race.",
+    },
+    {
+      revision: "Round 3: cancellation race fixed",
+      feedback: [
+        "Round 3 APPROVED: retry budget and cancellation invariants hold.",
+        "Round 3 APPROVED: all regression tests pass, including the cancellation race.",
+        "Round 3 APPROVED: timer cleanup is explicit. All three reviewers pass; exit loop.",
+      ],
+    },
+  ];
+  const b = new EventBuilder(start).sessionStart("claude-opus-5.5");
+  b.push("user.message", { content: "Synthetic gauntlet: build retry handling; repeat review and fixes until all three reviewers approve." });
+  b.push("assistant.turn_start", {});
+  b.advance(2000).spawn({
+    callId: "g-implement", agentId: implementer, name: "retry-implementer", type: "general-purpose",
+    description: "Implement retry handling; address every blocking review before the next gauntlet round",
+  });
+  b.agentWork(implementer, "g-implementation", "edit");
+  b.complete(implementer, "g-implement");
+
+  for (const [round, spec] of rounds.entries()) {
+    b.advance(8000);
+    for (const [i, reviewer] of reviewers.entries()) {
+      const callId = `g-review-${round}-${i}`;
+      const request = `${spec.revision}. Challenge the revision; report PASS or BLOCK with a concrete reason.`;
+      if (round === 0) {
+        b.spawn({ callId, ...reviewer, description: request });
+      } else {
+        b.toolStart(callId, "write_agent", { agent_id: reviewer.agentId, message: request }).toolComplete(callId);
+      }
+    }
+    for (const [i, reviewer] of reviewers.entries()) {
+      b.advance(1500).agentWork(reviewer.agentId, `g-check-${round}-${i}`, reviewer.tool);
+      const feedbackId = `g-feedback-${round}-${i}`;
+      b.toolStart(feedbackId, "write_agent", {
+        agent_id: implementer, message: spec.feedback[i],
+      }, reviewer.agentId).toolComplete(feedbackId, true, undefined, reviewer.agentId);
+      if (round === 0) {
+        b.complete(reviewer.agentId, `g-review-${round}-${i}`);
+      }
+    }
+    if (spec.fix) {
+      const fixId = `g-fix-${round}`;
+      b.advance(1000).toolStart(fixId, "write_agent", { agent_id: implementer, message: spec.fix }).toolComplete(fixId);
+      b.advance(1500).agentWork(implementer, `g-edit-${round}`, "edit");
+      const readyId = `g-ready-${round}`;
+      b.toolStart(readyId, "write_agent", {
+        scope: "siblings", message: `Revision ${round + 2} ready. Re-run the gauntlet against every previous blocker.`,
+      }, implementer).toolComplete(readyId, true, {
+        content: `Message delivered to 3 agents.\n${reviewers.map((r) => `- ${r.agentId}, delivered`).join("\n")}`,
+      }, implementer);
+    }
+  }
+  b.advance(8000);
+  for (const [i, reviewer] of reviewers.entries()) {
+    b.toolStart(`g-results-${i}`, "read_agent", { agent_id: reviewer.agentId }).toolComplete(`g-results-${i}`);
+  }
+  b.push("assistant.turn_end", {});
+  return b;
+}
