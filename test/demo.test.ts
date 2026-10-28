@@ -3,13 +3,15 @@ import { buildDemo, buildGauntletDemo } from "../scripts/demo";
 import { OrchestrationModel } from "../src/model/orchestration";
 
 describe("synthetic demos", () => {
-  it("keeps the original demo's failure, nesting and reuse examples", () => {
+  it("keeps the original demo's failure, nesting and reuse examples, with a nested fan-out that wraps", () => {
     const b = buildDemo(Date.parse("2026-10-20T09:00:00Z"));
     const model = new OrchestrationModel("demo", "copilot", "Demo");
     for (const event of b.events) model.apply(event);
     const snap = model.snapshot(b.now + 1500);
-    expect(snap.counts).toEqual({ running: 2, idle: 2, done: 1, failed: 1 });
+    expect(snap.counts).toEqual({ running: 4, idle: 2, done: 3, failed: 1 });
     expect(snap.agents.some((a) => a.depth === 2)).toBe(true);
+    const implementer = snap.agents.find((a) => a.name === "implement-refactor")!;
+    expect(snap.agents.filter((a) => a.parentId === implementer.id)).toHaveLength(5);
     expect(snap.tasks.some((t) => t.kind === "reuse")).toBe(true);
   });
 

@@ -9,7 +9,7 @@ A live, visual map of what your Copilot agent is doing with its **sub-agents**: 
 
 Inspired by the Agent Manager in Google Antigravity.
 
-![Agent Monitor showing a main agent, reused and new sub-agents, peer messages and the activity feed](media/screenshot.png)
+![Agent Monitor showing a main agent, reused and new sub-agents, a nested fan-out wrapping four cards per row, peer messages and the activity feed](media/screenshot.png)
 
 ## What you see
 

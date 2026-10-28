@@ -9,6 +9,7 @@ export function buildDemo(start: number): EventBuilder {
   const C = id(3);
   const D = id(4);
   const E = id(5);
+  const [F, G, H, I] = [id(6), id(7), id(8), id(9)];
   const b = new EventBuilder(start).sessionStart("claude-opus-5.5");
   b.push("user.message", { content: "Refactor the auth module, add tests and update the docs" });
   b.push("assistant.turn_start", {});
@@ -32,6 +33,20 @@ export function buildDemo(start: number): EventBuilder {
   b.advance(1500).agentWork(D, "d1", "powershell");
   b.advance(3000).complete(D, "c-d", { totalTokens: 41_000, durationMs: 4_500, totalToolCalls: 4 });
   b.toolComplete("c-d", true, undefined, C);
+  // Fan out per-module tests so the nested children wrap four per row.
+  for (const [agentId, name, module, tokens] of [
+    [F, "test-middleware", "auth middleware", 38_000],
+    [G, "test-session-store", "the session store", 52_000],
+  ] as const) {
+    const callId = `c-${name}`;
+    b.advance(500).spawn({ callId, agentId, name, type: "task", by: C, multiTurn: false, mode: "sync", description: `Write unit tests for ${module}` });
+    b.advance(1500).agentWork(agentId, `${name}-1`, "powershell");
+    b.advance(2500).complete(agentId, callId, { totalTokens: tokens, durationMs: 4_000, totalToolCalls: 3 });
+    b.toolComplete(callId, true, undefined, C);
+  }
+  b.advance(500).spawn({ callId: "c-h", agentId: H, name: "test-token-refresh", type: "task", by: C, description: "Write tests for token refresh edge cases" });
+  b.advance(500).spawn({ callId: "c-i", agentId: I, name: "test-config-loader", type: "task", by: C, description: "Write tests for auth config loading" });
+  b.advance(1000).agentWork(H, "h1", "view");
   b.advance(10_000).spawn({ callId: "c-e", agentId: E, name: "find-config", type: "explore", description: "Find where auth settings are configured" });
   b.advance(1000).toolStart("w-c", "write_agent", { scope: "siblings", message: "AuthService API is ready: validate(token)" }, C);
   b.toolComplete("w-c", true, { content: `Message delivered to 2 agents.\n- ${E}, delivered\n- ${A}, delivered` }, C);
@@ -39,6 +54,8 @@ export function buildDemo(start: number): EventBuilder {
   b.advance(1000).toolStart("c-f", "task", { name: "perf-audit", agent_type: "general-purpose", description: "Audit auth performance" });
   b.push("tool.execution_complete", { toolCallId: "c-f", success: false, error: { message: "requested model exceeds the session tier" } });
   b.advance(1500).agentWork(E, "e1", "glob");
+  b.advance(1000).push("assistant.turn_start", {}, H).toolStart("h2", "edit", { path: "test/refresh.test.ts" }, H);
+  b.advance(500).push("assistant.turn_start", {}, I).toolStart("i1", "grep", { pattern: "AUTH_" }, I);
   b.advance(2500).push("assistant.turn_start", {}, C).toolStart("c2", "powershell", { description: "Run the test suite" }, C);
   return b;
 }
