@@ -15,7 +15,7 @@ const NODE_H = 108;
 const H_GAP = 28;
 const V_GAP = 84;
 const ROW_GAP = 28;
-const GRID_COLS = 6;
+const GRID_COLS = 4;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const KIND_LABEL: Record<TaskKind, string> = {

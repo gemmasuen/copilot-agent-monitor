@@ -52,6 +52,9 @@ visuals, not a separate loop detector or an implementation of a specific Gauntle
 - **Reload** re-reads the session from disk.
 - Graph controls: scroll to zoom, drag to pan, **Fit** to reset the view, and click a card or a feed entry to inspect it.
 
+Groups of sibling agents without children wrap at four cards per row, so larger sessions grow downward.
+Nested delegations keep their tree layout.
+
 ## Data sources
 
 The extension only **reads** local log files. Nothing is sent anywhere.
