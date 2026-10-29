@@ -128,7 +128,7 @@ export async function discoverCopilotSessions(stateDir: string, limit = 40): Pro
       s.cwd = yaml.cwd;
       s.clientName = yaml.client_name;
       const label = yaml.summary ?? yaml.name;
-      const folder = s.cwd ? path.basename(s.cwd) : undefined;
+      const folder = folderName(s.cwd);
       s.title = truncate(label, 90) ?? (folder ? `${folder} · ${s.id.slice(0, 8)}` : s.id);
     }),
   );
@@ -169,7 +169,7 @@ export async function discoverVscodeTranscripts(storageDirs: string[], limit = 4
     top.map(async (s) => {
       s.cwd = await readWorkspaceFolder(s.workspaceStorageDir);
       const prompt = firstUserPrompt(await readHead(s.file, 256 * 1024));
-      const folder = s.cwd ? path.basename(s.cwd) : undefined;
+      const folder = folderName(s.cwd);
       s.title = truncate(prompt, 90) ?? (folder ? `${folder} · ${s.id.slice(0, 8)}` : s.id);
     }),
   );
@@ -187,6 +187,11 @@ async function readWorkspaceFolder(workspaceDir: string): Promise<string | undef
     // No workspace.json (empty window) or unreadable.
   }
   return undefined;
+}
+
+/** Last path segment; splits on both separators because a session's cwd may come from another OS. */
+function folderName(cwd: string | undefined): string | undefined {
+  return cwd?.split(/[\\/]+/).filter(Boolean).pop();
 }
 
 function firstUserPrompt(head: string): string | undefined {
