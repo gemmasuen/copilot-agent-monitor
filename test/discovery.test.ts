@@ -34,14 +34,20 @@ describe("discovery", () => {
     write("state/old/events.jsonl", '{"type":"session.start"}\n', new Date("2026-01-01"));
     write("state/old/workspace.yaml", "cwd: D:\\proj\\alpha\n");
     write("state/new/events.jsonl", '{"type":"session.start"}\n', new Date("2026-06-01"));
-    write("state/new/workspace.yaml", "name: Build the monitor\ncwd: D:\\proj\\beta\n");
+    write("state/new/workspace.yaml", "name: Build the monitor\ncwd: D:\\proj\\beta\nclient_name: vscode-agent-host\n");
     write("state/empty/events.jsonl", "");
     write("state/.session-operation-locks/x", "");
 
     const sessions = await discoverCopilotSessions(state);
     expect(sessions.map((s) => s.id)).toEqual(["new", "old"]);
-    expect(sessions[0]).toMatchObject({ title: "Build the monitor", source: "copilot", key: "copilot:new" });
+    expect(sessions[0]).toMatchObject({
+      title: "Build the monitor",
+      source: "copilot",
+      key: "copilot:new",
+      clientName: "vscode-agent-host",
+    });
     expect(sessions[1].title).toBe("alpha · old");
+    expect(sessions[1].clientName).toBeUndefined();
   });
 
   it("lists VS Code transcripts with the first prompt as title", async () => {
@@ -55,6 +61,7 @@ describe("discovery", () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({ id: "t1", source: "vscode", title: "Where is the prompt guide?" });
     expect(sessions[0].cwd).toBe("D:/Personal_Projects/demo");
+    expect(sessions[0].workspaceStorageDir).toBe(path.join(storage, "hash1"));
   });
 
   it("returns nothing for missing folders", async () => {

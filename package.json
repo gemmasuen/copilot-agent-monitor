@@ -2,9 +2,16 @@
   "name": "copilot-agent-monitor",
   "displayName": "Copilot Agent Monitor",
   "description": "Live graph of Copilot agents and sub-agents: who spawned whom, which tasks went to new vs. reused agents, and what each one is doing.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "gesuen",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gemmasuen/copilot-agent-monitor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gemmasuen/copilot-agent-monitor/issues"
+  },
   "private": true,
   "engines": {
     "vscode": "^1.100.0"
@@ -48,6 +55,11 @@
         "command": "copilotAgentMonitor.refresh",
         "title": "Reload Session",
         "category": "Copilot Agent Monitor"
+      },
+      {
+        "command": "copilotAgentMonitor.checkForUpdates",
+        "title": "Check for Updates",
+        "category": "Copilot Agent Monitor"
       }
     ],
     "configuration": {
@@ -77,6 +89,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show running/idle sub-agent counts in the status bar."
+        },
+        "copilotAgentMonitor.checkForUpdates": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Check GitHub once a day for a newer release and offer to install it. The check only downloads release information from api.github.com; no session data is sent."
         }
       }
     }

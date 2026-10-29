@@ -14,6 +14,10 @@ export interface SessionInfo {
   cwd?: string;
   mtimeMs: number;
   sizeBytes: number;
+  /** Copilot sessions: the harness that wrote it (`client_name` in workspace.yaml), e.g. "vscode-agent-host". */
+  clientName?: string;
+  /** VS Code transcripts: the workspaceStorage/<hash> folder the transcript belongs to. */
+  workspaceStorageDir?: string;
 }
 
 export function defaultCopilotSessionStateDir(): string {
@@ -122,6 +126,7 @@ export async function discoverCopilotSessions(stateDir: string, limit = 40): Pro
     top.map(async (s) => {
       const yaml = parseWorkspaceYaml(await readHead(path.join(stateDir, s.id, "workspace.yaml"), 16 * 1024));
       s.cwd = yaml.cwd;
+      s.clientName = yaml.client_name;
       const label = yaml.summary ?? yaml.name;
       const folder = s.cwd ? path.basename(s.cwd) : undefined;
       s.title = truncate(label, 90) ?? (folder ? `${folder} · ${s.id.slice(0, 8)}` : s.id);
@@ -131,7 +136,7 @@ export async function discoverCopilotSessions(stateDir: string, limit = 40): Pro
 }
 
 export async function discoverVscodeTranscripts(storageDirs: string[], limit = 40): Promise<SessionInfo[]> {
-  const candidates: (SessionInfo & { workspaceDir: string })[] = [];
+  const candidates: (SessionInfo & { workspaceStorageDir: string })[] = [];
   for (const storage of storageDirs) {
     for (const ws of await safeReaddir(storage)) {
       const dir = path.join(storage, ws, "GitHub.copilot-chat", "transcripts");
@@ -153,7 +158,7 @@ export async function discoverVscodeTranscripts(storageDirs: string[], limit = 4
           title: id,
           mtimeMs: stat.mtimeMs,
           sizeBytes: stat.size,
-          workspaceDir: path.join(storage, ws),
+          workspaceStorageDir: path.join(storage, ws),
         });
       }
     }
@@ -162,13 +167,13 @@ export async function discoverVscodeTranscripts(storageDirs: string[], limit = 4
   const top = candidates.slice(0, limit);
   await Promise.all(
     top.map(async (s) => {
-      s.cwd = await readWorkspaceFolder(s.workspaceDir);
+      s.cwd = await readWorkspaceFolder(s.workspaceStorageDir);
       const prompt = firstUserPrompt(await readHead(s.file, 256 * 1024));
       const folder = s.cwd ? path.basename(s.cwd) : undefined;
       s.title = truncate(prompt, 90) ?? (folder ? `${folder} · ${s.id.slice(0, 8)}` : s.id);
     }),
   );
-  return top.map(({ workspaceDir: _w, ...s }) => s);
+  return top;
 }
 
 async function readWorkspaceFolder(workspaceDir: string): Promise<string | undefined> {

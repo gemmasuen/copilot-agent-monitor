@@ -1,8 +1,11 @@
+import * as path from "path";
 import * as vscode from "vscode";
 import { MonitorConfig, MonitorController } from "./controller";
 import { formatAgo } from "./model/format";
 import { SessionSnapshot } from "./model/snapshot";
+import { ChatLinkResolver } from "./sources/chatLinks";
 import { defaultCopilotSessionStateDir, vscodeWorkspaceStorageDirs } from "./sources/discovery";
+import { registerUpdateChecks } from "./update/updater";
 import { AgentMonitorPanel } from "./webview/panel";
 
 const SECTION = "copilotAgentMonitor";
@@ -19,8 +22,27 @@ function readConfig(): MonitorConfig {
   };
 }
 
+/**
+ * Locates chat data for the running VS Code (stable, Insiders or portable) from this extension's own storage:
+ * globalStorageUri is <userData>/User/globalStorage/<extension> and storageUri is
+ * <userData>/User/workspaceStorage/<hash>/<extension> (undefined in an empty window).
+ */
+function createChatLinks(context: vscode.ExtensionContext): ChatLinkResolver {
+  const fsPath = (uri: vscode.Uri | undefined) => (uri?.scheme === "file" ? uri.fsPath : undefined);
+  const globalStorage = fsPath(context.globalStorageUri);
+  const workspaceStorage = fsPath(context.storageUri);
+  return new ChatLinkResolver({
+    agentSessionDataDir: globalStorage
+      ? path.join(path.dirname(path.dirname(path.dirname(globalStorage))), "agentSessionData")
+      : undefined,
+    currentWorkspaceStorageDir: workspaceStorage ? path.dirname(workspaceStorage) : undefined,
+  });
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const controller = new MonitorController(readConfig());
+  const chatLinks = createChatLinks(context);
+  const showPanel = () => AgentMonitorPanel.show(context.extensionUri, controller, chatLinks);
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = `${SECTION}.open`;
   context.subscriptions.push(controller, statusBar);
@@ -46,7 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(controller.onDidChangeSnapshot(updateStatusBar));
 
   context.subscriptions.push(
-    vscode.commands.registerCommand(`${SECTION}.open`, () => AgentMonitorPanel.show(context.extensionUri, controller)),
+    vscode.commands.registerCommand(`${SECTION}.open`, showPanel),
     vscode.commands.registerCommand(`${SECTION}.selectSession`, async () => {
       await controller.discover();
       const now = Date.now();
@@ -65,12 +87,12 @@ export function activate(context: vscode.ExtensionContext): void {
       });
       if (pick) {
         await controller.selectSession(pick.key);
-        AgentMonitorPanel.show(context.extensionUri, controller);
+        showPanel();
       }
     }),
     vscode.commands.registerCommand(`${SECTION}.followLatest`, () => {
       controller.setFollow(true);
-      AgentMonitorPanel.show(context.extensionUri, controller);
+      showPanel();
     }),
     vscode.commands.registerCommand(`${SECTION}.refresh`, () => controller.reload()),
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -81,6 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  registerUpdateChecks(context);
   void controller.start();
 }
 

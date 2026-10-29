@@ -1,0 +1,50 @@
+name: Bug report
+description: Report something that is not working as expected.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Agent Monitor and reporting a problem!
+        Reports are public. Remove private prompts, code, credentials, and personal
+        information from screenshots or examples. Do not upload raw session logs or transcripts.
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: What happened?
+      description: Describe the problem. Sanitized screenshots are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: List the steps, or describe what you were doing if you cannot reproduce it reliably.
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: Agent Monitor version
+      description: Find this on the extension's details page in VS Code.
+      placeholder: e.g. 0.1.0
+  - type: input
+    id: environment
+    attributes:
+      label: VS Code version and operating system
+      description: Find your VS Code version under Help > About.
+      placeholder: e.g. VS Code 1.x on Windows 11
+  - type: dropdown
+    id: source
+    attributes:
+      label: Which session source were you using?
+      options:
+        - Copilot CLI / Copilot SDK
+        - VS Code Local
+        - Both
+        - Not sure

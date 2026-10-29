@@ -83,6 +83,10 @@ export class MonitorController implements Disposable {
     return this.current?.info.key;
   }
 
+  get currentInfo(): SessionInfo | undefined {
+    return this.current?.info;
+  }
+
   get isLoading(): boolean {
     return this.current?.loading !== undefined;
   }

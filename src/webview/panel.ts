@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import type { MonitorController } from "../controller";
+import type { ChatLinkResolver } from "../sources/chatLinks";
 import type { FromWebview, ToWebview } from "./messages";
+
+/** How often to look again for a conversation link that wasn't found (e.g. a brand-new agent-host session). */
+const CONVERSATION_RETRY_MS = 15_000;
 
 /**
  * Single-instance webview panel.
@@ -9,8 +13,10 @@ import type { FromWebview, ToWebview } from "./messages";
 export class AgentMonitorPanel implements vscode.Disposable {
   static current: AgentMonitorPanel | undefined;
   private readonly disposables: vscode.Disposable[] = [];
+  private conversation: { key: string; available: boolean; checkedAt: number } | undefined;
+  private resolvingConversation = false;
 
-  static show(extensionUri: vscode.Uri, controller: MonitorController): void {
+  static show(extensionUri: vscode.Uri, controller: MonitorController, links: ChatLinkResolver): void {
     if (AgentMonitorPanel.current) {
       AgentMonitorPanel.current.panel.reveal();
       return;
@@ -21,19 +27,23 @@ export class AgentMonitorPanel implements vscode.Disposable {
       localResourceRoots: [vscode.Uri.joinPath(extensionUri, "dist"), vscode.Uri.joinPath(extensionUri, "media")],
     });
     panel.iconPath = vscode.Uri.joinPath(extensionUri, "media", "icon.svg");
-    AgentMonitorPanel.current = new AgentMonitorPanel(panel, extensionUri, controller);
+    AgentMonitorPanel.current = new AgentMonitorPanel(panel, extensionUri, controller, links);
   }
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     private readonly controller: MonitorController,
+    private readonly links: ChatLinkResolver,
   ) {
     panel.webview.html = renderHtml(panel.webview, extensionUri);
     this.disposables.push(
       panel.onDidDispose(() => this.dispose()),
       panel.webview.onDidReceiveMessage((msg: FromWebview) => this.onMessage(msg)),
-      controller.onDidChangeSnapshot((snapshot) => this.post({ type: "snapshot", snapshot })),
+      controller.onDidChangeSnapshot((snapshot) => {
+        this.post({ type: "snapshot", snapshot });
+        void this.updateConversation();
+      }),
       controller.onDidChangeSessions(() => this.postSessions()),
     );
   }
@@ -43,6 +53,9 @@ export class AgentMonitorPanel implements vscode.Disposable {
       case "ready":
         this.postSessions();
         this.post({ type: "snapshot", snapshot: this.controller.snapshot() });
+        if (this.conversation) {
+          this.post({ type: "conversation", key: this.conversation.key, available: this.conversation.available });
+        }
         return;
       case "selectSession":
         void this.controller.selectSession(msg.key);
@@ -53,6 +66,50 @@ export class AgentMonitorPanel implements vscode.Disposable {
       case "reload":
         void this.controller.reload();
         return;
+      case "openConversation":
+        void this.openConversation();
+        return;
+    }
+  }
+
+  /** Tells the webview whether the current session's conversation can be opened, re-checking misses now and then. */
+  private async updateConversation(): Promise<void> {
+    const info = this.controller.currentInfo;
+    if (!info || this.resolvingConversation) {
+      return;
+    }
+    const known = this.conversation;
+    if (known?.key === info.key && (known.available || Date.now() - known.checkedAt < CONVERSATION_RETRY_MS)) {
+      return;
+    }
+    this.resolvingConversation = true;
+    try {
+      const uri = await this.links.resolve(info).catch(() => undefined);
+      this.conversation = { key: info.key, available: uri !== undefined, checkedAt: Date.now() };
+      if (known?.key !== info.key || known.available !== this.conversation.available) {
+        this.post({ type: "conversation", key: info.key, available: this.conversation.available });
+      }
+    } finally {
+      this.resolvingConversation = false;
+    }
+    if (this.controller.currentKey !== info.key) {
+      void this.updateConversation();
+    }
+  }
+
+  private async openConversation(): Promise<void> {
+    const info = this.controller.currentInfo;
+    const uri = info ? await this.links.resolve(info).catch(() => undefined) : undefined;
+    if (!uri) {
+      void vscode.window.showInformationMessage("This session's conversation can't be opened in this VS Code window.");
+      return;
+    }
+    try {
+      await vscode.commands.executeCommand("vscode.open", vscode.Uri.parse(uri));
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Couldn't open the conversation: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -63,6 +120,7 @@ export class AgentMonitorPanel implements vscode.Disposable {
       currentKey: this.controller.currentKey,
       follow: this.controller.follow,
     });
+    void this.updateConversation();
   }
 
   private post(msg: ToWebview): void {
@@ -104,6 +162,7 @@ function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
       <select id="session" aria-label="Session"></select>
       <label class="follow" title="Automatically switch to the most recently active session"><input type="checkbox" id="follow" /> Follow latest</label>
       <button id="reload" title="Reload this session from disk">Reload</button>
+      <button id="openChat" title="Open this session's conversation in VS Code chat" hidden>Open chat</button>
     </div>
     <div class="counts" id="counts"></div>
   </header>

@@ -10,10 +10,13 @@ export interface SessionOption {
 
 export type ToWebview =
   | { type: "snapshot"; snapshot: SessionSnapshot | undefined }
-  | { type: "sessions"; sessions: SessionOption[]; currentKey?: string; follow: boolean };
+  | { type: "sessions"; sessions: SessionOption[]; currentKey?: string; follow: boolean }
+  /** Whether the session `key` has a conversation this VS Code window can open. */
+  | { type: "conversation"; key: string; available: boolean };
 
 export type FromWebview =
   | { type: "ready" }
   | { type: "selectSession"; key: string }
   | { type: "setFollow"; follow: boolean }
-  | { type: "reload" };
+  | { type: "reload" }
+  | { type: "openConversation" };

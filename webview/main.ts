@@ -10,12 +10,13 @@ declare function acquireVsCodeApi(): {
 
 const vscode = acquireVsCodeApi();
 
-const NODE_W = 228;
+const NODE_W = 200;
 const NODE_H = 108;
 const H_GAP = 28;
 const V_GAP = 84;
 const ROW_GAP = 28;
 const GRID_COLS = 4;
+const MAX_ROW_W = GRID_COLS * NODE_W + (GRID_COLS - 1) * H_GAP;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const KIND_LABEL: Record<TaskKind, string> = {
@@ -39,10 +40,13 @@ const bannerEl = $("banner");
 const emptyEl = $("empty");
 const sessionEl = $<HTMLSelectElement>("session");
 const followEl = $<HTMLInputElement>("follow");
+const openChatEl = $<HTMLButtonElement>("openChat");
 
 let snapshot: SessionSnapshot | undefined;
 let sessions: SessionOption[] = [];
 let currentKey: string | undefined;
+/** Session keys whose conversation can be opened in this VS Code window. */
+const openableKeys = new Set<string>();
 let selectedId = "main";
 let view = { x: 40, y: 32, k: 1 };
 let userMoved = false;
@@ -67,12 +71,21 @@ window.addEventListener("message", (ev: MessageEvent<ToWebview>) => {
     currentKey = msg.currentKey;
     followEl.checked = msg.follow;
     renderSessions();
+    renderOpenChat();
+  } else if (msg.type === "conversation") {
+    if (msg.available) {
+      openableKeys.add(msg.key);
+    } else {
+      openableKeys.delete(msg.key);
+    }
+    renderOpenChat();
   }
 });
 
 sessionEl.addEventListener("change", () => vscode.postMessage({ type: "selectSession", key: sessionEl.value }));
 followEl.addEventListener("change", () => vscode.postMessage({ type: "setFollow", follow: followEl.checked }));
 $("reload").addEventListener("click", () => vscode.postMessage({ type: "reload" }));
+openChatEl.addEventListener("click", () => vscode.postMessage({ type: "openConversation" }));
 $("fit").addEventListener("click", () => {
   userMoved = false;
   fit();
@@ -165,6 +178,10 @@ function renderSessions() {
   }
 }
 
+function renderOpenChat() {
+  openChatEl.hidden = currentKey === undefined || !openableKeys.has(currentKey);
+}
+
 function renderCounts() {
   if (!snapshot) {
     countsEl.innerHTML = "";
@@ -210,30 +227,42 @@ function computeLayout(agents: AgentView[]) {
       roots.push(a);
     }
   }
-  type Size = { w: number; h: number; cols?: number };
+  type Size = { w: number; h: number };
+  type Row = { items: { agent: AgentView; size: Size }[]; w: number; h: number };
   const sizes = new Map<string, Size>();
+  const rowsOf = new Map<string, Row[]>();
   const visiting = new Set<string>();
+  // Rows next to a nested group get the full level gap, so edges between the rows (tree edges and
+  // peer messages) have room to run without passing under cards.
+  const gapBetween = (row: Row, below: Row) => (row.h > NODE_H || below.h > NODE_H ? V_GAP : ROW_GAP);
 
   const measure = (a: AgentView): Size => {
     const cached = sizes.get(a.id);
     if (cached) return cached;
     if (visiting.has(a.id)) return { w: NODE_W, h: NODE_H };
     visiting.add(a.id);
-    const ch = kids.get(a.id) ?? [];
-    let size: Size;
-    if (ch.length === 0) {
-      size = { w: NODE_W, h: NODE_H };
-    } else {
-      const childSizes = ch.map(measure);
-      const allLeaves = ch.every((c) => !(kids.get(c.id)?.length));
-      if (allLeaves && ch.length > GRID_COLS) {
-        const rows = Math.ceil(ch.length / GRID_COLS);
-        const w = GRID_COLS * NODE_W + (GRID_COLS - 1) * H_GAP;
-        size = { w, h: NODE_H + V_GAP + rows * NODE_H + (rows - 1) * ROW_GAP, cols: GRID_COLS };
-      } else {
-        const w = childSizes.reduce((s, c) => s + c.w, 0) + H_GAP * (ch.length - 1);
-        size = { w: Math.max(NODE_W, w), h: NODE_H + V_GAP + Math.max(...childSizes.map((c) => c.h)) };
+    const ch = [...(kids.get(a.id) ?? [])];
+    let size: Size = { w: NODE_W, h: NODE_H };
+    if (ch.length > 0) {
+      // Agents with nested groups go last (stable), so edges to later rows don't cut through a group.
+      const heights = new Map(ch.map((c) => [c.id, measure(c).h]));
+      ch.sort((x, y) => heights.get(x.id)! - heights.get(y.id)!);
+      // Pack children (with their nested groups) into rows, in order, no wider than MAX_ROW_W.
+      const rows: Row[] = [];
+      for (const agent of ch) {
+        const s = measure(agent);
+        const row = rows.at(-1);
+        if (row && row.w + H_GAP + s.w <= MAX_ROW_W) {
+          row.items.push({ agent, size: s });
+          row.w += H_GAP + s.w;
+          row.h = Math.max(row.h, s.h);
+        } else {
+          rows.push({ items: [{ agent, size: s }], w: s.w, h: s.h });
+        }
       }
+      rowsOf.set(a.id, rows);
+      const rowsH = rows.reduce((sum, r, i) => sum + r.h + (i < rows.length - 1 ? gapBetween(r, rows[i + 1]) : 0), 0);
+      size = { w: Math.max(NODE_W, ...rows.map((r) => r.w)), h: NODE_H + V_GAP + rowsH };
     }
     sizes.set(a.id, size);
     return size;
@@ -243,24 +272,18 @@ function computeLayout(agents: AgentView[]) {
   const place = (a: AgentView, x0: number, y0: number) => {
     const s = sizes.get(a.id)!;
     next.set(a.id, { x: x0 + (s.w - NODE_W) / 2, y: y0 });
-    const ch = kids.get(a.id) ?? [];
-    const cy = y0 + NODE_H + V_GAP;
-    if (s.cols) {
-      const gridW = s.cols * NODE_W + (s.cols - 1) * H_GAP;
-      const gx = x0 + (s.w - gridW) / 2;
-      ch.forEach((c, i) =>
-        next.set(c.id, { x: gx + (i % s.cols!) * (NODE_W + H_GAP), y: cy + Math.floor(i / s.cols!) * (NODE_H + ROW_GAP) }),
-      );
-      return;
-    }
-    const total = ch.reduce((sum, c) => sum + sizes.get(c.id)!.w, 0) + H_GAP * Math.max(0, ch.length - 1);
-    let x = x0 + (s.w - total) / 2;
-    for (const c of ch) {
-      if (!next.has(c.id)) {
-        place(c, x, cy);
+    let cy = y0 + NODE_H + V_GAP;
+    const rows = rowsOf.get(a.id) ?? [];
+    rows.forEach((row, i) => {
+      let x = x0 + (s.w - row.w) / 2;
+      for (const { agent, size } of row.items) {
+        if (!next.has(agent.id)) {
+          place(agent, x, cy);
+        }
+        x += size.w + H_GAP;
       }
-      x += sizes.get(c.id)!.w + H_GAP;
-    }
+      if (i < rows.length - 1) cy += row.h + gapBetween(row, rows[i + 1]);
+    });
   };
 
   let x = 0;
@@ -445,6 +468,16 @@ function peerPath(from: { x: number; y: number }, to: { x: number; y: number }) 
   const leftToRight = from.x <= to.x;
   const sx = from.x + NODE_W / 2 + (leftToRight ? 30 : -30);
   const ex = to.x + NODE_W / 2 + (leftToRight ? -30 : 30);
+  if (from.y + NODE_H <= to.y || to.y + NODE_H <= from.y) {
+    // Different rows: run between them, bottom of the upper card to top of the lower card, so the
+    // line doesn't arc up behind the cards in the upper row.
+    const down = from.y < to.y;
+    const sy = down ? from.y + NODE_H : from.y;
+    const ey = down ? to.y : to.y + NODE_H;
+    const dy = (ey - sy) / 2;
+    const mid = { x: (sx + ex) / 2, y: (sy + ey) / 2 };
+    return { d: `M ${sx} ${sy} C ${sx} ${sy + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`, mid };
+  }
   const sy = from.y;
   const ey = to.y;
   const lift = Math.min(V_GAP * 1.6, 70 + Math.abs(ex - sx) / 10);

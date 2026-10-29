@@ -93,8 +93,13 @@ ${extractBody()}
   window.acquireVsCodeApi = () => ({
     postMessage(m) {
       console.log("webview ->", JSON.stringify(m));
+      if (m.type === "openConversation") {
+        console.log("preview: VS Code would open this session's conversation in chat");
+        return;
+      }
       if (m.type !== "ready") return;
       post({ type: "sessions", sessions: [{ key: "copilot:preview", title: frames[0].title, source: frames[0].source, mtimeMs: realNow() }], currentKey: "copilot:preview", follow: true });
+      post({ type: "conversation", key: "copilot:preview", available: true });
       let i = Math.min(startAt, frames.length - 1);
       show(i);
       if (params.get("play") !== "0") {

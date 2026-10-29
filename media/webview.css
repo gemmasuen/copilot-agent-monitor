@@ -307,7 +307,7 @@ h3 {
   position: absolute;
   left: 0;
   top: 0;
-  width: 228px;
+  width: 200px;
   height: 108px;
   padding: 8px 10px;
   border-radius: var(--radius);
@@ -705,7 +705,7 @@ ol.feed {
   to { background: transparent; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   main {
     flex-direction: column;
   }
