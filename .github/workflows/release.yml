@@ -40,6 +40,8 @@ jobs:
             echo "::error::CHANGELOG.md has no '## $VERSION' section"
             exit 1
           fi
+          # Release notes don't resolve repository-relative paths, so point images at this tag.
+          sed -i -E "s#\]\((media/[^)]+)\)#](https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/\1)#g" release-notes.md
 
       - name: Create the GitHub release
         env:
