@@ -24,20 +24,31 @@ function readConfig(): MonitorConfig {
 
 /**
  * Locates chat data for the running VS Code (stable, Insiders or portable) from this extension's own storage:
- * globalStorageUri is <userData>/User/globalStorage/<extension> and storageUri is
- * <userData>/User/workspaceStorage/<hash>/<extension> (undefined in an empty window).
+ * globalStorageUri is <userData>/User/globalStorage/<extension> (or <userData>/User/profiles/<id>/globalStorage/...
+ * in a profile with its own state) and storageUri is <userData>/User/workspaceStorage/<hash>/<extension>
+ * (undefined in an empty window). On desktop these are often vscode-userdata: URIs that map 1:1 onto disk paths.
  */
 function createChatLinks(context: vscode.ExtensionContext): ChatLinkResolver {
-  const fsPath = (uri: vscode.Uri | undefined) => (uri?.scheme === "file" ? uri.fsPath : undefined);
+  const fsPath = (uri: vscode.Uri | undefined) =>
+    uri?.scheme === "file" || uri?.scheme === "vscode-userdata" ? uri.fsPath : undefined;
   const globalStorage = fsPath(context.globalStorageUri);
   const workspaceStorage = fsPath(context.storageUri);
+  const userData = globalStorage ? userDataDir(globalStorage) : undefined;
   return new ChatLinkResolver({
-    agentSessionDataDir: globalStorage
-      ? path.join(path.dirname(path.dirname(path.dirname(globalStorage))), "agentSessionData")
-      : undefined,
+    agentSessionDataDir: userData ? path.join(userData, "agentSessionData") : undefined,
     currentWorkspaceStorageDir: workspaceStorage ? path.dirname(workspaceStorage) : undefined,
     workspaceStorageRoots: vscodeWorkspaceStorageDirs(),
   });
+}
+
+/** The VS Code user data folder: the parent of the "User" folder that `storagePath` sits in. */
+function userDataDir(storagePath: string): string | undefined {
+  for (let dir = storagePath; path.dirname(dir) !== dir; dir = path.dirname(dir)) {
+    if (path.basename(dir).toLowerCase() === "user") {
+      return path.dirname(dir);
+    }
+  }
+  return undefined;
 }
 
 export function activate(context: vscode.ExtensionContext): void {

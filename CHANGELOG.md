@@ -9,6 +9,7 @@
 - Count chips no longer wrap onto two lines, and they move along their line to avoid overlapping other chips or cards.
 - The session list (and **Select Session…**) shows the title VS Code gives a session in its Sessions view, such as “Issue 591 PR status”, instead of the session's first prompt. When VS Code renames a session, the list and the status bar tooltip follow within a few seconds. Sessions VS Code hasn't named yet still show their first prompt.
 - A Copilot session whose first prompt spans several lines no longer shows up as “|-” in the session list.
+- Fixed: VS Code session titles and the **Open chat** button didn't work for Copilot CLI sessions. VS Code gives extensions `vscode-userdata:` storage URIs, which the monitor ignored, so it never found VS Code's agent-host session data. Profiles with their own storage are handled too.
 
 ## 0.1.1
 
