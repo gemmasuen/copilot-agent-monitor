@@ -25,7 +25,7 @@ afterEach(() => {
 const dataDirName = (hostId: string) => `default-${Buffer.from(`copilotcli:/${hostId}`).toString("base64url")}`;
 
 /** Creates an agentSessionData folder whose session.db points at `sdkId`. */
-function hostSession(hostId: string, sdkId: string, mtime?: Date): string {
+function hostSession(hostId: string, sdkId: string, mtime?: Date, title?: string): string {
   const dir = path.join(root, "agentSessionData", dataDirName(hostId));
   fs.mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(path.join(dir, "session.db"));
@@ -34,6 +34,9 @@ function hostSession(hostId: string, sdkId: string, mtime?: Date): string {
     "agentHost.chatProviderData",
     JSON.stringify({ sdkSessionId: sdkId }),
   );
+  if (title) {
+    db.prepare("INSERT INTO session_metadata VALUES (?, ?)").run("customTitle", title);
+  }
   db.close();
   if (mtime) {
     fs.utimesSync(dir, mtime, mtime);
@@ -112,5 +115,67 @@ describe("chat links", () => {
     expect(await links.resolve(transcript("t1", here + path.sep))).toBe(vscodeChatSessionUri("t1"));
     expect(await links.resolve(transcript("t2", path.join(root, "workspaceStorage", "hash2")))).toBeUndefined();
     expect(await new ChatLinkResolver({}).resolve(transcript("t1", here))).toBeUndefined();
+  });
+});
+
+/** Writes a workspace state.vscdb with VS Code's chat session index. */
+function chatIndex(workspaceDir: string, titles: Record<string, string>) {
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  const db = new DatabaseSync(path.join(workspaceDir, "state.vscdb"));
+  db.exec("CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)");
+  const entries = Object.fromEntries(Object.entries(titles).map(([id, title]) => [id, { sessionId: id, title }]));
+  db.prepare("INSERT INTO ItemTable VALUES (?, ?)").run("chat.ChatSessionStore.index", JSON.stringify({ version: 1, entries }));
+  db.close();
+}
+
+describe("session titles", () => {
+  it("reads the title VS Code gave an agent-host Copilot session", async () => {
+    hostSession("host-1", "cli-1", undefined, "Figures performance investigation");
+    hostSession("host-2", "cli-2");
+    const links = new ChatLinkResolver({ agentSessionDataDir: path.join(root, "agentSessionData") });
+    expect(await links.title(copilot("cli-1", "vscode-agent-host"))).toBe("Figures performance investigation");
+    expect(await links.title(copilot("cli-2", "vscode-agent-host"))).toBeUndefined();
+    expect(await links.title(copilot("cli-1", "github/autopilot"))).toBeUndefined();
+  });
+
+  it("picks up a rename of an agent-host session", async () => {
+    const dir = hostSession("host-1", "cli-1");
+    const links = new ChatLinkResolver({ agentSessionDataDir: path.join(root, "agentSessionData") });
+    expect(await links.title(copilot("cli-1", "vscode-agent-host"))).toBeUndefined();
+    const db = new DatabaseSync(path.join(dir, "session.db"));
+    db.prepare("INSERT INTO session_metadata VALUES (?, ?)").run("customTitle", "Issue 591 PR status");
+    db.close();
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(path.join(dir, "session.db"), later, later);
+    expect(await links.title(copilot("cli-1", "vscode-agent-host"))).toBe("Issue 591 PR status");
+  });
+
+  it("prefers the chat index title for agent-host sessions over session.db", async () => {
+    hostSession("host-1", "cli-1", undefined, "I'm going to be away for a few hours, and...");
+    hostSession("host-2", "cli-2");
+    const storage = path.join(root, "workspaceStorage");
+    chatIndex(path.join(storage, "hashA"), { "agent-host-copilotcli:/host-1": "Overseeing agent sessions" });
+    chatIndex(path.join(storage, "hashB"), { "agent-host-copilotcli:/host-2": "Issue 591 PR status" });
+    const links = new ChatLinkResolver({
+      agentSessionDataDir: path.join(root, "agentSessionData"),
+      workspaceStorageRoots: [storage],
+    });
+    expect(await links.title(copilot("cli-1", "vscode-agent-host"))).toBe("Overseeing agent sessions");
+    expect(await links.title(copilot("cli-2", "vscode-agent-host"))).toBe("Issue 591 PR status");
+  });
+
+  it("reads VS Code Local chat titles and skips the untitled placeholder", async () => {
+    const ws = path.join(root, "workspaceStorage", "hash1");
+    chatIndex(ws, { t1: "Delete Docker folders", t2: "New Chat" });
+    const links = new ChatLinkResolver({});
+    expect(await links.title(transcript("t1", ws))).toBe("Delete Docker folders");
+    expect(await links.title(transcript("t2", ws))).toBeUndefined();
+    expect(await links.title(transcript("t3", ws))).toBeUndefined();
+  });
+
+  it("has no titles without SQLite", async () => {
+    const ws = path.join(root, "workspaceStorage", "hash1");
+    chatIndex(ws, { t1: "Delete Docker folders" });
+    expect(await new ChatLinkResolver({ readValue: undefined }).title(transcript("t1", ws))).toBeUndefined();
   });
 });

@@ -128,4 +128,28 @@ describe("MonitorController", () => {
     expect(seen.at(-1)).toBe(1);
     ctl.dispose();
   });
+
+  it("shows VS Code's session titles and follows renames of the open session", async () => {
+    const t0 = Date.parse("2026-10-20T09:00:00Z");
+    writeSession("a", new EventBuilder(t0).sessionStart(), t0, "I want to look into this next issue: #455");
+    writeSession("b", new EventBuilder(t0 - 1000).sessionStart(), t0 - 1000, "Old prompt");
+    const titles = new Map<string, string>([["b", "Issue 591 PR status"]]);
+    const ctl = new MonitorController(
+      { copilotSessions: true, vscodeTranscripts: false, copilotStateDir: stateDir, vscodeStorageDirs: [], showPreviews: true },
+      TIMINGS,
+      () => t0 + 1000,
+      async (info) => titles.get(info.id),
+    );
+    await ctl.discover();
+    expect(ctl.sessionOptions().map((s) => s.title)).toEqual(["I want to look into this next issue: #455", "Issue 591 PR status"]);
+    expect(ctl.snapshot()!.title).toBe("I want to look into this next issue: #455");
+
+    titles.set("a", "Figures performance investigation");
+    const sessionLists: string[][] = [];
+    ctl.onDidChangeSessions(() => sessionLists.push(ctl.sessionOptions().map((s) => s.title)));
+    await ctl.discover();
+    expect(sessionLists.at(-1)?.[0]).toBe("Figures performance investigation");
+    expect(ctl.snapshot()!.title).toBe("Figures performance investigation");
+    ctl.dispose();
+  });
 });

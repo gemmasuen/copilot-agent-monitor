@@ -23,7 +23,7 @@ Trying it out? [Share feedback or report a bug](#feedback). Rough notes and scre
 | Red card | Failed to start or failed while running |
 | Thick purple edge, **↻ n** chip, “reused ×n” badge | The agent got *n* new tasks **after** it had finished (reuse) |
 | **✉ n** chip | Follow-ups sent while the agent was still running |
-| Dashed cyan arc, **⇄ n** | Messages between sub-agents |
+| Dashed cyan arc, **⇄ n** | Messages between two sub-agents, in either direction (hover for the count each way) |
 | Dashed orange edge, “new, not reused” badge | A **new** agent was created while an idle agent of the same type could have been reused |
 | Moving dot along an edge | A task or message is being handed over right now |
 
@@ -72,7 +72,9 @@ If you installed version 0.1.0, install 0.1.1 or later once by hand; update chec
 
 The graph is never more than four cards wide, so larger sessions grow downward. A sub-agent that
 created its own sub-agents brings that nested group with it, below the sub-agents that did not,
-and a group that is four cards wide takes a row of its own.
+and a group that is four cards wide takes a row of its own. Sub-agents that message each other
+stay together on one row when they fit. Every row has the same gap, so lines and chips sit between
+cards, and lines to later rows run down a gap between the cards above.
 
 ## Data sources
 
@@ -89,6 +91,11 @@ To find the conversation for **Open chat**, the extension also reads one setting
 host data (`<VS Code user dir>/agentSessionData/*/session.db`): which Copilot CLI session each agent-host
 session belongs to. It needs a VS Code whose built-in Node.js includes `node:sqlite`; without it, the
 button stays hidden for Copilot CLI sessions.
+
+The session list uses the titles VS Code shows in its Sessions view. It reads them from VS Code's chat
+index (`<VS Code user dir>/workspaceStorage/*/state.vscdb`), falling back to the agent-host
+`session.db` title. Until VS Code has named a session, or without `node:sqlite`, the list shows the
+session's first prompt instead.
 
 How agents are recognised (Copilot harness):
 

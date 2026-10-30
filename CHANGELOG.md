@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Graph readability for larger sessions: every row of cards now has the full gap seen around nested groups, so chips and message lines sit between cards instead of on them.
+- Sub-agents that message each other are kept together on one row (when they fit), so their message lines stay short.
+- Messages between two sub-agents are drawn as one line with one **⇄ n** count, whichever way they went; hover the count to see each direction.
+- Lines from an agent to its later rows of sub-agents run down a gap between the cards above instead of behind them.
+- Count chips no longer wrap onto two lines, and they move along their line to avoid overlapping other chips or cards.
+- The session list (and **Select Session…**) shows the title VS Code gives a session in its Sessions view, such as “Issue 591 PR status”, instead of the session's first prompt. When VS Code renames a session, the list and the status bar tooltip follow within a few seconds. Sessions VS Code hasn't named yet still show their first prompt.
+- A Copilot session whose first prompt spans several lines no longer shows up as “|-” in the session list.
+
 ## 0.1.1
 
 - Update notifications: once a day the extension checks this project's GitHub releases and offers to install a newer version (Update, Release Notes, or Skip This Version). It verifies the download against the release checksum. Turn it off with `copilotAgentMonitor.checkForUpdates`, or run **Check for Updates** at any time.

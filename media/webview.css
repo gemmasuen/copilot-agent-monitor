@@ -503,6 +503,7 @@ h3 {
   font-weight: 600;
   padding: 1px 7px;
   border-radius: 999px;
+  white-space: nowrap;
   background: var(--vscode-editor-background);
   border: 1.5px solid currentColor;
 }

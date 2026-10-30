@@ -1,3 +1,4 @@
+import { truncate } from "./model/format";
 import { OrchestrationModel } from "./model/orchestration";
 import { SessionSnapshot } from "./model/snapshot";
 import { SessionInfo, discoverCopilotSessions, discoverVscodeTranscripts } from "./sources/discovery";
@@ -77,6 +78,8 @@ export class MonitorController implements Disposable {
     private config: MonitorConfig,
     private readonly timings: MonitorTimings = DEFAULT_TIMINGS,
     private readonly now: () => number = Date.now,
+    /** Looks up the title VS Code shows for a session; undefined keeps the title from the session files. */
+    private readonly titleOf?: (info: SessionInfo) => Promise<string | undefined>,
   ) {}
 
   get currentKey(): string | undefined {
@@ -150,7 +153,23 @@ export class MonitorController implements Disposable {
         cfg.vscodeTranscripts ? discoverVscodeTranscripts(cfg.vscodeStorageDirs) : Promise.resolve([]),
       ]);
       const merged = lists.flat().sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, 60);
+      if (this.titleOf) {
+        // Prefer the title VS Code shows for the session over its first prompt.
+        await Promise.all(
+          merged.map(async (s) => {
+            const title = await this.titleOf!(s).catch(() => undefined);
+            s.title = truncate(title, 90) ?? s.title;
+          }),
+        );
+      }
       this.sessions = merged;
+      const cur = this.current;
+      const renamed = cur && merged.find((s) => s.key === cur.info.key && s.title !== cur.model.title);
+      if (cur && renamed) {
+        cur.info.title = renamed.title;
+        cur.model.title = renamed.title;
+        this.emitSnapshot(true);
+      }
       const signature = merged.map((s) => `${s.key}|${s.title}`).join("\n");
       if (signature !== this.sessionsSignature) {
         this.sessionsSignature = signature;

@@ -1,6 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { MonitorConfig, MonitorController } from "./controller";
+import { DEFAULT_TIMINGS, MonitorConfig, MonitorController } from "./controller";
 import { formatAgo } from "./model/format";
 import { SessionSnapshot } from "./model/snapshot";
 import { ChatLinkResolver } from "./sources/chatLinks";
@@ -36,12 +36,13 @@ function createChatLinks(context: vscode.ExtensionContext): ChatLinkResolver {
       ? path.join(path.dirname(path.dirname(path.dirname(globalStorage))), "agentSessionData")
       : undefined,
     currentWorkspaceStorageDir: workspaceStorage ? path.dirname(workspaceStorage) : undefined,
+    workspaceStorageRoots: vscodeWorkspaceStorageDirs(),
   });
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const controller = new MonitorController(readConfig());
   const chatLinks = createChatLinks(context);
+  const controller = new MonitorController(readConfig(), DEFAULT_TIMINGS, Date.now, (info) => chatLinks.title(info));
   const showPanel = () => AgentMonitorPanel.show(context.extensionUri, controller, chatLinks);
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = `${SECTION}.open`;

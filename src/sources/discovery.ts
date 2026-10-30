@@ -92,7 +92,7 @@ export function parseWorkspaceYaml(text: string): Record<string, string> {
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
-    if (value && value !== "|" && value !== ">") {
+    if (value && !/^[|>][+-]?\d*$/.test(value)) {
       out[m[1]] = value;
     }
   }

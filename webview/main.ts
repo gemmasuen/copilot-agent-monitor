@@ -14,7 +14,6 @@ const NODE_W = 200;
 const NODE_H = 108;
 const H_GAP = 28;
 const V_GAP = 84;
-const ROW_GAP = 28;
 const GRID_COLS = 4;
 const MAX_ROW_W = GRID_COLS * NODE_W + (GRID_COLS - 1) * H_GAP;
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -58,7 +57,12 @@ const nodeEls = new Map<string, HTMLElement>();
 const nodeHtml = new WeakMap<HTMLElement, string>();
 const edgeEls = new Map<string, SVGPathElement>();
 const labelEls = new Map<string, HTMLElement>();
-let positions = new Map<string, { x: number; y: number }>();
+type Pos = { x: number; y: number };
+type Rect = { x: number; y: number; w: number; h: number };
+/** How a tree edge reaches a child below its parent's first row: down a trunk through a gap, then into the row. */
+type Route = { trunkX: number; firstTop: number; prevBottom: number };
+let positions = new Map<string, Pos>();
+let routes = new Map<string, Route>();
 
 // ---------- messaging ----------
 
@@ -129,7 +133,7 @@ function render(animate: boolean) {
   if (!snapshot.agents.some((a) => a.id === selectedId)) {
     selectedId = "main";
   }
-  computeLayout(snapshot.agents);
+  computeLayout(snapshot.agents, snapshot.tasks);
   renderNodes();
   renderEdges();
   renderDetails();
@@ -214,7 +218,7 @@ function renderBanner() {
   }
 }
 
-function computeLayout(agents: AgentView[]) {
+function computeLayout(agents: AgentView[], tasks: TaskView[]) {
   const byId = new Map(agents.map((a) => [a.id, a]));
   const kids = new Map<string, AgentView[]>();
   const roots: AgentView[] = [];
@@ -228,62 +232,128 @@ function computeLayout(agents: AgentView[]) {
     }
   }
   type Size = { w: number; h: number };
-  type Row = { items: { agent: AgentView; size: Size }[]; w: number; h: number };
+  type Item = { agent: AgentView; size: Size };
+  type Row = { items: Item[]; w: number; h: number };
   const sizes = new Map<string, Size>();
   const rowsOf = new Map<string, Row[]>();
   const visiting = new Set<string>();
-  // Rows next to a nested group get the full level gap, so edges between the rows (tree edges and
-  // peer messages) have room to run without passing under cards.
-  const gapBetween = (row: Row, below: Row) => (row.h > NODE_H || below.h > NODE_H ? V_GAP : ROW_GAP);
+
+  // Siblings that message each other form a team; a team shares a row so its message lines stay short.
+  // Agents with their own sub-agents stay out of teams: their nested group keeps its own rows.
+  const isLeaf = (id: string) => !kids.get(id)?.length;
+  const peerLinks = new Map<string, Set<string>>();
+  for (const t of tasks) {
+    const a = byId.get(t.fromAgentId);
+    const b = byId.get(t.toAgentId);
+    if (t.kind !== "peer" || !a || !b || a.id === b.id || a.parentId !== b.parentId) continue;
+    if (!isLeaf(a.id) || !isLeaf(b.id)) continue;
+    for (const [p, q] of [[a.id, b.id], [b.id, a.id]]) {
+      const set = peerLinks.get(p) ?? new Set<string>();
+      set.add(q);
+      peerLinks.set(p, set);
+    }
+  }
+  const teamsOf = (ch: AgentView[]): AgentView[][] => {
+    const index = new Map(ch.map((c, i) => [c.id, i]));
+    const seen = new Set<string>();
+    const teams: AgentView[][] = [];
+    for (const c of ch) {
+      if (seen.has(c.id)) continue;
+      const team: AgentView[] = [];
+      const queue = [c];
+      seen.add(c.id);
+      while (queue.length) {
+        const cur = queue.shift()!;
+        team.push(cur);
+        for (const id of peerLinks.get(cur.id) ?? []) {
+          if (!seen.has(id) && index.has(id)) {
+            seen.add(id);
+            queue.push(ch[index.get(id)!]);
+          }
+        }
+      }
+      teams.push(team.sort((x, y) => index.get(x.id)! - index.get(y.id)!));
+    }
+    return teams;
+  };
 
   const measure = (a: AgentView): Size => {
     const cached = sizes.get(a.id);
     if (cached) return cached;
     if (visiting.has(a.id)) return { w: NODE_W, h: NODE_H };
     visiting.add(a.id);
-    const ch = [...(kids.get(a.id) ?? [])];
+    const ch = kids.get(a.id) ?? [];
     let size: Size = { w: NODE_W, h: NODE_H };
     if (ch.length > 0) {
-      // Agents with nested groups go last (stable), so edges to later rows don't cut through a group.
-      const heights = new Map(ch.map((c) => [c.id, measure(c).h]));
-      ch.sort((x, y) => heights.get(x.id)! - heights.get(y.id)!);
-      // Pack children (with their nested groups) into rows, in order, no wider than MAX_ROW_W.
+      // Teams with nested groups go last (stable), so edges to later rows don't cut through a group.
+      const teams = teamsOf(ch).map((team) => team.map((agent): Item => ({ agent, size: measure(agent) })));
+      const teamH = (team: Item[]) => Math.max(...team.map((i) => i.size.h));
+      teams.sort((x, y) => teamH(x) - teamH(y));
+      // Pack children (with their nested groups) into rows no wider than MAX_ROW_W. A team that fits on
+      // one row goes into the first row with room for all of it; later single agents may fill the gap it left.
       const rows: Row[] = [];
-      for (const agent of ch) {
-        const s = measure(agent);
-        const row = rows.at(-1);
-        if (row && row.w + H_GAP + s.w <= MAX_ROW_W) {
-          row.items.push({ agent, size: s });
-          row.w += H_GAP + s.w;
-          row.h = Math.max(row.h, s.h);
+      const fits = (row: Row, w: number) => row.items.length === 0 || row.w + H_GAP + w <= MAX_ROW_W;
+      const add = (row: Row, item: Item) => {
+        row.w += (row.items.length ? H_GAP : 0) + item.size.w;
+        row.h = Math.max(row.h, item.size.h);
+        row.items.push(item);
+      };
+      const rowWithRoom = (w: number, from: number) => {
+        const found = rows.slice(from).find((r) => fits(r, w));
+        if (found) return found;
+        const row: Row = { items: [], w: 0, h: 0 };
+        rows.push(row);
+        return row;
+      };
+      for (const team of teams) {
+        const w = team.reduce((sum, i) => sum + i.size.w, 0) + H_GAP * (team.length - 1);
+        if (w <= MAX_ROW_W) {
+          const row = rowWithRoom(w, 0);
+          for (const item of team) add(row, item);
         } else {
-          rows.push({ items: [{ agent, size: s }], w: s.w, h: s.h });
+          for (const item of team) add(rowWithRoom(item.size.w, Math.max(0, rows.length - 1)), item);
         }
       }
       rowsOf.set(a.id, rows);
-      const rowsH = rows.reduce((sum, r, i) => sum + r.h + (i < rows.length - 1 ? gapBetween(r, rows[i + 1]) : 0), 0);
+      const rowsH = rows.reduce((sum, r) => sum + r.h, 0) + V_GAP * (rows.length - 1);
       size = { w: Math.max(NODE_W, ...rows.map((r) => r.w)), h: NODE_H + V_GAP + rowsH };
     }
     sizes.set(a.id, size);
     return size;
   };
 
-  const next = new Map<string, { x: number; y: number }>();
+  const next = new Map<string, Pos>();
+  const nextRoutes = new Map<string, Route>();
   const place = (a: AgentView, x0: number, y0: number) => {
     const s = sizes.get(a.id)!;
-    next.set(a.id, { x: x0 + (s.w - NODE_W) / 2, y: y0 });
+    const ax = x0 + (s.w - NODE_W) / 2;
+    next.set(a.id, { x: ax, y: y0 });
     let cy = y0 + NODE_H + V_GAP;
-    const rows = rowsOf.get(a.id) ?? [];
-    rows.forEach((row, i) => {
+    const placed: { top: number; bottom: number; spans: [number, number][]; ids: string[] }[] = [];
+    for (const row of rowsOf.get(a.id) ?? []) {
       let x = x0 + (s.w - row.w) / 2;
+      const spans: [number, number][] = [];
+      const ids: string[] = [];
       for (const { agent, size } of row.items) {
         if (!next.has(agent.id)) {
           place(agent, x, cy);
+          ids.push(agent.id);
         }
+        spans.push([x, x + size.w]);
         x += size.w + H_GAP;
       }
-      if (i < rows.length - 1) cy += row.h + gapBetween(row, rows[i + 1]);
-    });
+      placed.push({ top: cy, bottom: cy + row.h, spans, ids });
+      cy += row.h + V_GAP;
+    }
+    if (placed.length > 1) {
+      const trunkX = pickTrunk(ax + NODE_W / 2, placed.slice(0, -1).flatMap((r) => r.spans));
+      placed.forEach((row, i) => {
+        if (i === 0) return;
+        for (const id of row.ids) {
+          nextRoutes.set(id, { trunkX, firstTop: placed[0].top, prevBottom: placed[i - 1].bottom });
+        }
+      });
+    }
   };
 
   let x = 0;
@@ -295,9 +365,17 @@ function computeLayout(agents: AgentView[]) {
     h = Math.max(h, s.h);
   }
   positions = next;
+  routes = nextRoutes;
   bounds = { w: Math.max(NODE_W, x - H_GAP * 2), h };
   edgesEl.setAttribute("width", String(bounds.w));
   edgesEl.setAttribute("height", String(bounds.h));
+}
+
+/** The x closest to `center` that runs clear of every card or group span (through a gap between them, or beside them). */
+function pickTrunk(center: number, spans: [number, number][]): number {
+  const clear = (x: number) => spans.every(([l, r]) => x < l - 6 || x > r + 6);
+  const candidates = [center, ...spans.flatMap(([l, r]) => [l - H_GAP / 2, r + H_GAP / 2])];
+  return candidates.filter(clear).sort((p, q) => Math.abs(p - center) - Math.abs(q - center))[0] ?? center;
 }
 
 function renderNodes() {
@@ -389,7 +467,7 @@ function renderEdges() {
     if (p.getAttribute("class") !== cls) p.setAttribute("class", cls);
     p.firstChild!.textContent = title;
   };
-  const upsertLabel = (key: string, x: number, y: number, html: string, cls: string) => {
+  const upsertLabel = (key: string, html: string, cls: string): HTMLElement => {
     liveLabels.add(key);
     let el = labelEls.get(key);
     if (!el) {
@@ -398,8 +476,18 @@ function renderEdges() {
       labelEls.set(key, el);
     }
     el.className = `edge-label ${cls}`;
-    el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
     if (el.innerHTML !== html) el.innerHTML = html;
+    return el;
+  };
+  // Labels avoid cards and each other: each one takes the first spot along its edge that is still free.
+  const taken: Rect[] = [...positions.values()].map((p) => ({ x: p.x, y: p.y, w: NODE_W, h: NODE_H }));
+  const placeLabel = (el: HTMLElement, spots: Pos[]) => {
+    const w = el.offsetWidth || 32;
+    const h = el.offsetHeight || 18;
+    const rectAt = (p: Pos): Rect => ({ x: p.x - w / 2 - 3, y: p.y - h / 2 - 3, w: w + 6, h: h + 6 });
+    const spot = spots.find((p) => !taken.some((r) => overlaps(r, rectAt(p)))) ?? spots[0];
+    taken.push(rectAt(spot));
+    el.style.transform = `translate(${spot.x}px, ${spot.y}px) translate(-50%, -50%)`;
   };
 
   for (const a of snapshot!.agents) {
@@ -407,7 +495,7 @@ function renderEdges() {
     const from = positions.get(a.parentId);
     const to = positions.get(a.id);
     if (!from || !to) continue;
-    const d = treePath(from, to);
+    const d = treePath(a.id, from, to);
     const replaced = a.couldHaveReused.length > 0;
     upsertPath(
       `tree:${a.id}`,
@@ -420,25 +508,34 @@ function renderEdges() {
     if (a.steerCount) chips.push(`<span class="k-steer" title="Follow-ups sent while it was running">✉ ${a.steerCount}</span>`);
     if (chips.length) {
       // Place chips close to the child so they don't pile up under a busy parent.
-      upsertLabel(`tree:${a.id}`, to.x + NODE_W / 2, to.y - 22, chips.join(""), "tree");
+      const el = upsertLabel(`tree:${a.id}`, chips.join(""), "tree");
+      const cx = to.x + NODE_W / 2;
+      placeLabel(el, [{ x: cx, y: to.y - 22 }, { x: cx, y: to.y - 46 }]);
     }
   }
 
-  const peers = new Map<string, { t: TaskView; n: number }>();
+  // One line per pair of agents, whichever way the messages went.
+  const peers = new Map<string, { a: string; b: string; ab: number; ba: number }>();
   for (const t of snapshot!.tasks) {
-    if (t.kind !== "peer") continue;
-    const key = `peer:${t.fromAgentId}>${t.toAgentId}`;
-    const e = peers.get(key);
-    if (e) e.n++;
-    else peers.set(key, { t, n: 1 });
+    if (t.kind !== "peer" || t.fromAgentId === t.toAgentId) continue;
+    const [a, b] = t.fromAgentId < t.toAgentId ? [t.fromAgentId, t.toAgentId] : [t.toAgentId, t.fromAgentId];
+    const key = `peer:${a}|${b}`;
+    const e = peers.get(key) ?? { a, b, ab: 0, ba: 0 };
+    if (t.fromAgentId === a) e.ab++;
+    else e.ba++;
+    peers.set(key, e);
   }
-  for (const [key, { t, n }] of peers) {
-    const from = positions.get(t.fromAgentId);
-    const to = positions.get(t.toAgentId);
-    if (!from || !to || !byId.has(t.fromAgentId) || !byId.has(t.toAgentId)) continue;
-    const { d, mid } = peerPath(from, to);
-    upsertPath(key, d, "edge peer", `${nameOf(t.fromAgentId)} → ${nameOf(t.toAgentId)}: ${n} message(s)`);
-    upsertLabel(key, mid.x, mid.y, `<span class="k-peer">⇄ ${n}</span>`, "peer");
+  for (const [key, { a, b, ab, ba }] of peers) {
+    if (!byId.has(a) || !byId.has(b) || !positions.has(a) || !positions.has(b)) continue;
+    const [p, q] = peerOrder(a, b);
+    const { d, at } = peerPath(positions.get(p)!, positions.get(q)!);
+    const title = [
+      ab ? `${nameOf(a)} → ${nameOf(b)}: ${ab}` : "",
+      ba ? `${nameOf(b)} → ${nameOf(a)}: ${ba}` : "",
+    ].filter(Boolean).join("\n");
+    upsertPath(key, d, "edge peer", `Messages between agents\n${title}`);
+    const el = upsertLabel(key, `<span class="k-peer" title="${esc(title)}">⇄ ${ab + ba}</span>`, "peer");
+    placeLabel(el, [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8].map(at));
   }
 
   for (const [key, el] of edgeEls) {
@@ -455,16 +552,39 @@ function renderEdges() {
   }
 }
 
-function treePath(from: { x: number; y: number }, to: { x: number; y: number }): string {
+function overlaps(r: Rect, s: Rect): boolean {
+  return r.x < s.x + s.w && s.x < r.x + r.w && r.y < s.y + s.h && s.y < r.y + r.h;
+}
+
+/** Draw order for a peer line: upper card first, then left to right. */
+function peerOrder(a: string, b: string): [string, string] {
+  const pa = positions.get(a);
+  const pb = positions.get(b);
+  if (!pa || !pb) return [a, b];
+  return pa.y < pb.y || (pa.y === pb.y && pa.x <= pb.x) ? [a, b] : [b, a];
+}
+
+function treePath(childId: string, from: Pos, to: Pos): string {
   const sx = from.x + NODE_W / 2;
   const sy = from.y + NODE_H;
   const ex = to.x + NODE_W / 2;
   const ey = to.y;
-  const dy = Math.max(30, (ey - sy) / 2);
-  return `M ${sx} ${sy} C ${sx} ${sy + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`;
+  const route = routes.get(childId);
+  if (!route) {
+    const dy = Math.max(30, (ey - sy) / 2);
+    return `M ${sx} ${sy} C ${sx} ${sy + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`;
+  }
+  // Later rows: down the trunk (a gap between the cards above), then curve into the gap above the child's row.
+  const { trunkX: tx, firstTop, prevBottom } = route;
+  const d0 = (firstTop - sy) / 2;
+  const head = Math.abs(tx - sx) < 0.5
+    ? `M ${sx} ${sy}`
+    : `M ${sx} ${sy} C ${sx} ${sy + d0}, ${tx} ${firstTop - d0}, ${tx} ${firstTop}`;
+  const dy = (ey - prevBottom) / 2;
+  return `${head} L ${tx} ${prevBottom} C ${tx} ${prevBottom + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`;
 }
 
-function peerPath(from: { x: number; y: number }, to: { x: number; y: number }) {
+function peerPath(from: Pos, to: Pos): { d: string; at: (t: number) => Pos } {
   const leftToRight = from.x <= to.x;
   const sx = from.x + NODE_W / 2 + (leftToRight ? 30 : -30);
   const ex = to.x + NODE_W / 2 + (leftToRight ? -30 : 30);
@@ -475,17 +595,25 @@ function peerPath(from: { x: number; y: number }, to: { x: number; y: number }) 
     const sy = down ? from.y + NODE_H : from.y;
     const ey = down ? to.y : to.y + NODE_H;
     const dy = (ey - sy) / 2;
-    const mid = { x: (sx + ex) / 2, y: (sy + ey) / 2 };
-    return { d: `M ${sx} ${sy} C ${sx} ${sy + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`, mid };
+    const p = [{ x: sx, y: sy }, { x: sx, y: sy + dy }, { x: ex, y: ey - dy }, { x: ex, y: ey }];
+    const at = (t: number): Pos => {
+      const u = 1 - t;
+      const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+      return { x: w.reduce((s, k, i) => s + k * p[i].x, 0), y: w.reduce((s, k, i) => s + k * p[i].y, 0) };
+    };
+    return { d: `M ${sx} ${sy} C ${sx} ${sy + dy}, ${ex} ${ey - dy}, ${ex} ${ey}`, at };
   }
   const sy = from.y;
   const ey = to.y;
   const lift = Math.min(V_GAP * 1.6, 70 + Math.abs(ex - sx) / 10);
   const cx = (sx + ex) / 2;
   const cy = Math.min(sy, ey) - lift;
-  // Point on the quadratic curve at t = 0.5.
-  const mid = { x: (sx + 2 * cx + ex) / 4, y: (sy + 2 * cy + ey) / 4 };
-  return { d: `M ${sx} ${sy} Q ${cx} ${cy}, ${ex} ${ey}`, mid };
+  // Point on the quadratic curve at t.
+  const at = (t: number): Pos => {
+    const u = 1 - t;
+    return { x: u * u * sx + 2 * u * t * cx + t * t * ex, y: u * u * sy + 2 * u * t * cy + t * t * ey };
+  };
+  return { d: `M ${sx} ${sy} Q ${cx} ${cy}, ${ex} ${ey}`, at };
 }
 
 function animateTask(t: TaskView) {
@@ -493,13 +621,19 @@ function animateTask(t: TaskView) {
   const toPos = positions.get(t.toAgentId);
   if (!fromPos || !toPos) return;
   const target = snapshot!.agents.find((a) => a.id === t.toAgentId);
+  const fromParent = target?.parentId === t.fromAgentId;
   let d: string;
+  // Pulses travel along the drawn edge; `reverse` runs them from its end back to its start.
+  let reverse = false;
   if (t.kind === "peer") {
-    d = peerPath(fromPos, toPos).d;
+    const [p, q] = peerOrder(t.fromAgentId, t.toAgentId);
+    d = peerPath(positions.get(p)!, positions.get(q)!).d;
+    reverse = p !== t.fromAgentId;
   } else if (t.kind === "read") {
-    d = target?.parentId === t.fromAgentId ? reversePath(fromPos, toPos) : centerPath(toPos, fromPos);
+    d = fromParent ? treePath(t.toAgentId, fromPos, toPos) : centerPath(toPos, fromPos);
+    reverse = fromParent;
   } else {
-    d = target?.parentId === t.fromAgentId ? treePath(fromPos, toPos) : centerPath(fromPos, toPos);
+    d = fromParent ? treePath(t.toAgentId, fromPos, toPos) : centerPath(fromPos, toPos);
   }
   const dot = document.createElementNS(SVG_NS, "circle");
   dot.setAttribute("r", t.kind === "read" ? "4" : "6");
@@ -509,6 +643,11 @@ function animateTask(t: TaskView) {
   motion.setAttribute("fill", "freeze");
   motion.setAttribute("begin", "indefinite");
   motion.setAttribute("path", d);
+  if (reverse) {
+    motion.setAttribute("keyPoints", "1;0");
+    motion.setAttribute("keyTimes", "0;1");
+    motion.setAttribute("calcMode", "linear");
+  }
   dot.append(motion);
   pulsesEl.append(dot);
   try {
@@ -529,16 +668,7 @@ function animateTask(t: TaskView) {
   }
 }
 
-function reversePath(parent: { x: number; y: number }, child: { x: number; y: number }): string {
-  const sx = child.x + NODE_W / 2;
-  const sy = child.y;
-  const ex = parent.x + NODE_W / 2;
-  const ey = parent.y + NODE_H;
-  const dy = Math.max(30, (sy - ey) / 2);
-  return `M ${sx} ${sy} C ${sx} ${sy - dy}, ${ex} ${ey + dy}, ${ex} ${ey}`;
-}
-
-function centerPath(from: { x: number; y: number }, to: { x: number; y: number }): string {
+function centerPath(from: Pos, to: Pos): string {
   return `M ${from.x + NODE_W / 2} ${from.y + NODE_H / 2} L ${to.x + NODE_W / 2} ${to.y + NODE_H / 2}`;
 }
 

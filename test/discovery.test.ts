@@ -27,6 +27,7 @@ describe("discovery", () => {
   it("parses workspace.yaml key/value pairs", () => {
     const y = parseWorkspaceYaml('id: abc\ncwd: c:\\repo\nname: "Fix the build"\nsummary: |\n  multi\n');
     expect(y).toEqual({ id: "abc", cwd: "c:\\repo", name: "Fix the build" });
+    expect(parseWorkspaceYaml("id: abc\nname: |-\n  first line\n  second\nsummary: >+\n  x\n")).toEqual({ id: "abc" });
   });
 
   it("lists Copilot sessions newest first with titles", async () => {
